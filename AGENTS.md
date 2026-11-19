@@ -2,13 +2,13 @@
 
 ## Profile
 
-- Purpose: Pi package that adds Mistral subscription sign-in through Mistral AI Studio to Pi's built-in `mistral` provider.
+- Purpose: Pi package that adds Mistral subscription sign-in through Mistral AI Studio to Pi's built-in `mistral` provider, plus the request metadata Mistral needs to bill the plan's Vibe Code budget.
 - Stage: released (repository standard 2026-10-18)
 - Gate: `npm run check` (CI job `gate`)
 - Landing: PR, squash-merged on a green gate; agents land: yes
 - Release: `v0.x.y` Git tags with a GitHub Release, cut by hand from `main` after a behaviour change (see [Releasing](#releasing)); `package.json` `version` and the README pinned-install example match the tag; the Release notes are the changelog; `main` stays the default install; agents release: yes (owner 2026-10-23)
 - Outside issues and PRs: agents triage; outside PRs merge: owner approves
-- Sensitive paths: `src/mistral-oauth.ts`, `src/mistral-overlay.ts`, `src/models.ts`, `extensions/mistral-subscription/index.ts`, `package.json`, `.npmrc`, `.agents/`, `.githooks/`, `.github/workflows/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.secretlintrc.json`, `.gitignore`, `AGENTS.md`
+- Sensitive paths: `src/mistral-oauth.ts`, `src/mistral-overlay.ts`, `src/mistral-transport.ts`, `src/models.ts`, `extensions/mistral-subscription/index.ts`, `package.json`, `.npmrc`, `.agents/`, `.githooks/`, `.github/workflows/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.secretlintrc.json`, `.gitignore`, `AGENTS.md`
 
 Deliberate deviations from the standard:
 - No release workflow or `CHANGELOG.md`: releases are tagged by hand and GitHub Release notes serve as the changelog (owner decision 2026-10-23). npm publication is deferred (issue #1).
@@ -18,6 +18,8 @@ Deliberate deviations from the standard:
 
 - `extensions/mistral-subscription/index.ts`: Pi entry point; adds the sign-in to the built-in `mistral` provider, keeps the deprecated `mistral-subscription` provider and registers the `/mistral-subscription-status` command.
 - `src/mistral-overlay.ts`: model IDs to hide from Pi's `mistral` catalog while a sign-in is active.
+- `src/mistral-transport.ts`: the sign-in-gated wrapper over Pi's native mistral streaming that adds Mistral's plan-attribution metadata (`call_type` and its constants) to each request.
+- `src/mistral-budget.ts`: the free billing reads behind the footer budget line, the exhaustion warning and the `/mistral-subscription-status` output.
 - `src/models.ts`: fixed model list and reasoning maps for the deprecated provider.
 - `src/mistral-oauth.ts`: `/login` browser sign-in through Mistral AI Studio, ending in an API key Pi stores.
 - `tests/`: `node:test` suites run through `tsx`.
@@ -40,16 +42,16 @@ Cut a release when `git log $(git describe --tags --abbrev=0 origin/main)..origi
 
 ## Rules
 
-- Use Pi's native `mistral-conversations` API path; no proxy server or custom streaming adapter.
+- Delegate streaming to Pi's native `mistral-conversations` implementation; the extension adds only Mistral's plan-attribution metadata through Pi's `onPayload` hook, and only while a sign-in is active. No proxy server, no reimplemented or custom streaming adapter.
 - Use Pi's built-in `mistral` provider for everything it already does; the overlay holds only what a subscription key does differently from Pi's catalog, and API-key use of `mistral` stays exactly as Pi ships it.
 - Model IDs, limits and capabilities come from Mistral's documentation, the Mistral Vibe source or a live check the owner asked for; cite them in the PR and update the README reasoning table and tests together.
 - Tests are hermetic: OAuth tests inject a fake `fetch`, streaming tests use a loopback server. Build credential-shaped strings from parts.
 - Never commit API keys, OAuth credentials, Pi auth files or captured requests. Live tests against Mistral spend the owner's subscription quota: never run them unless the owner asks.
 - Keep `peerDependencies` at the oldest Pi version that works (`>=0.99.0`) and the Pi dev dependencies on the newest Pi release, so CI tests the newest host. `@types/node` follows the `engines.node` line.
-- Commits use the GitHub noreply address `268151429+5omeOtherGuy@users.noreply.github.com` and carry no personal email trailers.
+- Commits use the local git identity (here `dqdev <dqdev@localhost>`) and carry no personal email trailers.
 
 ## Focused test
 
 ```sh
-node --test --import tsx tests/models.test.ts
+node --test --import tsx tests/mistral-transport.test.ts
 ```

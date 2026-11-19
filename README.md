@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A [Pi](https://github.com/earendil-works/pi) package that lets you use your Mistral subscription with Pi's built-in `mistral` provider.
-It adds browser sign-in through Mistral AI Studio to `/login`. Pi supplies the model catalog, streaming, and prompt caching. The extension filters a few catalog entries when you sign in.
+It adds browser sign-in through Mistral AI Studio to `/login`. Pi supplies the model catalog, streaming, and prompt caching; the extension filters a few catalog entries when you sign in, and adds one field to each request: the client metadata Mistral needs to bill your plan instead of your API budget.
+It runs no proxy server and contains no credentials, tokens or API keys.
 
 Install from `main` or a pinned [release tag](https://github.com/5omeOtherGuy/pi-mistral-subscription/releases). Changes land through reviewed pull requests with a passing gate.
 
@@ -69,13 +70,19 @@ The sign-in returns a Mistral API key, which Pi stores in `auth.json`. Pi keeps 
 - **`MISTRAL_API_KEY` is ignored while you are signed in.** After `/logout`, Pi uses the variable again without telling you, and that usage is ordinary API usage.
 - **`--api-key` wins for that run.** `pi --api-key <key> --model mistral/<id>` uses your API key instead of the subscription. The key can end up in your shell history.
 - **`/logout` only removes the key from Pi.** It stays valid at Mistral until you revoke it in the console. The session keeps its model until you pick another one.
+- **Signed-in requests carry plan-attribution metadata.** Each request adds the client metadata Mistral Vibe sends, so usage draws on your plan's Vibe Code budget; see [Usage and billing](#usage-and-billing).
+- **Pi shows the plan budget.** While signed in, the footer carries the remaining Vibe Code budget and its reset date, a warning appears near exhaustion, and `/mistral-subscription-status` prints the plan, both budgets and pay-as-you-go state. The reads are the free billing endpoints Mistral Vibe's own gauge uses, cached for ten minutes.
 - **Run `/logout` before you remove this package.** Pi cannot use a stored sign-in without it and leaves `mistral` unavailable, even with `MISTRAL_API_KEY` set.
 
 Without a sign-in, this package changes nothing about the `mistral` provider.
 
 ## Usage and billing
 
-Mistral plans include a monthly usage budget shared across Studio, the API and Vibe Code, so this is not a flat rate. The Admin Panel lists sign-in requests as usage type **Vibe Code** and plain API keys as **Completion** (checked 2026-10-31). Pay-as-you-go is off by default.
+Mistral plans include a monthly usage budget shared across Studio, the API and Vibe Code, so this is not a flat rate. Pay-as-you-go is off by default.
+
+Mistral decides per request which budget a completion draws from: only requests that carry client metadata (`metadata.call_type`, the field Mistral Vibe sends on every completion) count against the plan's **Vibe Code** budget. Requests without it count as **Completion** API usage, and once that API budget is exhausted the API answers `402 budget exhausted` — even with the same key that keeps working in Vibe. Checked against the live API on 2026-11-19: any non-empty `call_type` moves billing to the plan budget, and its value is not validated.
+
+So while you are signed in, this package routes every `mistral` request through Pi's native streaming with Vibe's metadata (`call_type: "main_call"`, `call_source: "vibe_code"`, `host_kind: "local"`) added. The transport itself is untouched Pi code; without a sign-in, or with `--api-key`, requests go out exactly as Pi ships them and bill as ordinary API usage.
 
 Pi shows the API-equivalent price of what you use. That figure is not a bill.
 
@@ -122,6 +129,8 @@ Project layout:
 
 - `extensions/mistral-subscription/index.ts`: the Pi extension entry point. It adds the sign-in to the built-in `mistral` provider, keeps the deprecated `mistral-subscription` provider and registers the `/mistral-subscription-status` command.
 - `src/mistral-overlay.ts`: model IDs to hide while signed in.
+- `src/mistral-transport.ts`: the sign-in-gated wrapper over Pi's native mistral streaming that adds the plan-attribution metadata to each request.
+- `src/mistral-budget.ts`: reads Mistral's billing endpoints for the plan budget shown in the footer, the status command and the exhaustion warning.
 - `src/models.ts`: the fixed model list of the deprecated provider.
 - `src/mistral-oauth.ts`: the `/login` flow. It mirrors Mistral Vibe's browser sign-in: it starts a sign-in process on `console.mistral.ai`, polls until you finish in the browser, then exchanges the result for an API key that Pi stores.
 - `tests/`: `node:test` suites run through `tsx`.
@@ -139,7 +148,7 @@ pi -e . --model mistral/<api-model-id>
 
 Useful references when Mistral changes things:
 
-- [Mistral Vibe source](https://github.com/mistralai/mistral-vibe): `vibe/core/config/vibe_schema.py` (`DEFAULT_MODELS`) shows which models Vibe ships, and its browser-auth code is the reference for the sign-in flow.
+- [Mistral Vibe source](https://github.com/mistralai/mistral-vibe): `vibe/core/config/vibe_schema.py` (`DEFAULT_MODELS`) shows which models Vibe ships, `vibe/core/telemetry/types.py` holds the request metadata this package mirrors, and its browser-auth code is the reference for the sign-in flow.
 - [Mistral changelog](https://docs.mistral.ai/resources/changelogs): new model ids and deprecations.
 - pi-ai's `mistral-conversations` provider: how requests, reasoning and streaming are sent.
 

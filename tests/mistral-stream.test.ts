@@ -125,9 +125,10 @@ test("extension delegates to Pi's native streaming implementation", () => {
   const deprecated = registrations.get(MISTRAL_SUBSCRIPTION_PROVIDER_ID);
   assert.ok(builtIn?.oauth);
   assert.equal(builtIn.models, undefined, "the built-in provider keeps Pi's models");
-  assert.equal(builtIn.streamSimple, undefined);
+  assert.equal(builtIn.api, "mistral-conversations");
+  assert.equal(typeof builtIn.streamSimple, "function", "streaming goes through the extension transport");
   assert.ok(deprecated);
   assert.equal(deprecated.api, "mistral-conversations");
-  assert.equal(deprecated.streamSimple, undefined);
+  assert.equal(typeof deprecated.streamSimple, "function", "streaming goes through the extension transport");
   assert.ok(deprecated.models?.some((model) => model.id === "mistral-large-4"));
 });
